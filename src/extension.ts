@@ -1,63 +1,55 @@
-import { exec } from "child_process";
-import * as path from 'path';
-import { ExtensionContext, workspace } from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient';
+import { CancellationToken, EventEmitter, ExtensionContext, Uri, workspace } from 'vscode';
+import { LanguageClient, RequestType } from 'vscode-languageclient';
 
 const isWin = /^win/.test(process.platform);
+let jarEventEmitter: EventEmitter<Uri> = new EventEmitter();
+let contentsRequest = new RequestType<string, string, string, CancellationToken>('clojure/dependencyContents');
 
 let client: LanguageClient;
 
-function execute(command:string, callback:any) {
-	exec(command, function (error, stdout, stderr) { 
-		callback(stdout); });
-}
+export function activate(context: ExtensionContext) {
+ 	let serverModule = isWin ? "clojure-lsp.bat" : "clojure-lsp";
 
-function startClient(lspPath:string) {
-	let serverModule =  '/g/dev-bin/clojure-lsp' ;  //path.posix.normalize(lspPath);
-
-	console.log("serverModule", serverModule);
-	console.log("lspPath",lspPath);
-
-	if (!serverModule) {
-		console.log("No clojure-lsp found in PATH.");
-		return;
-	}
-	serverModule = path.resolve(lspPath);
-	let serverOptions: ServerOptions = {
-		run: { module: serverModule, transport: TransportKind.ipc },
-		debug: {
-			module: serverModule,
-			transport: TransportKind.ipc,
-			options: {}
-		}
+	let serverOptions = {
+		run: { command: "bash", args: ["-c", "clojure-lsp"] },
+		debug: { command: 'bash', args: ["-c", "clojure-lsp"] }
 	};
 
-	let clientOptions: LanguageClientOptions = {
+	let clientOptions = {
 		// Register the server for plain text documents
-		documentSelector: [{ scheme: 'file', language: 'plaintext' }],
+		documentSelector: [{ scheme: 'file', language: 'clojure' }],
 		synchronize: {
-			// Notify the server about file changes to '.clientrc files contained in the workspace
+			configurationSection: 'clojure-lsp',
 			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
+		},
+		initializationOptions: {
+			"dependency-scheme": "jar"
 		}
 	};
 
 	// Create the language client and start the client.
 	client = new LanguageClient(
 		'clojureLSP',
-		'Clojure Language Server',
+		'Clojure Language Client',
 		serverOptions,
 		clientOptions
 	);
 
-	client.start();
+	context.subscriptions.push(client.start());
+
+	/* let provider = {
+		onDidChange: jarEventEmitter.event,
+		provideTextDocumentContent: (uri: Uri, token: CancellationToken): Thenable<string> => {
+			return client.sendRequest<any, string, string, CancellationToken>(contentsRequest,
+				{ uri: decodeURIComponent(uri.toString()) },
+				token).then((v: string) => {
+					return v || '';
+				});
+		}
+	};
+	context.subscriptions.push(workspace.registerTextDocumentContentProvider('jar', provider)); */
 
 	console.log('Clojure-LSP started');
-}
-
-export function activate(context: ExtensionContext) {
-	let command = isWin? "where clojure-lsp" : "which clojure-lsp";
-
-	execute(command, startClient);
 }
 
 // this method is called when your extension is deactivated
